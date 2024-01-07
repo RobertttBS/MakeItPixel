@@ -10,7 +10,8 @@
 namespace mipa{
     template <typename F>
     void directQuantize(sf::Image& image, const F& quant){
-        sf::Vector2u imgSize = image.getSize();        
+        sf::Vector2u imgSize = image.getSize();
+        // 要在這邊把圖片切一切，然後丟到 thread    
         for(uint y = 0; y < imgSize.y; y++){
             for(uint x = 0; x < imgSize.x; x++){
                 image.setPixel(x, y, quant(image.getPixel(x, y)));

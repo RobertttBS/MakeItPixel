@@ -7,6 +7,8 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <pthread.h>
+#include <chrono>
 
 #include <SFML/Graphics.hpp>
 
@@ -14,6 +16,7 @@
 #include "Color.hpp"
 #include "Palette.hpp"
 #include "Quantization.hpp"
+#include "Thread.hpp"
 
 #ifdef _WIN32
 const std::string sep("\\");
@@ -23,6 +26,9 @@ const std::string sep("/");
 
 using namespace mipa;
 using json = nlohmann::json;
+
+#define THREAD_NUM 4
+#define THREAD_ENABLED
 
 
 /*
@@ -122,6 +128,69 @@ sf::Image pixelize(const sf::Image& image, uint max_width, uint max_height, cons
 
 void normalize(sf::Image& image){
     log(INFO, "Normalizing...", "");
+    auto start_time = std::chrono::high_resolution_clock::now();
+#ifdef THREAD_ENABLED
+    sf::Uint8 minR = 0xff, maxR = 0;
+    sf::Uint8 minG = 0xff, maxG = 0;
+    sf::Uint8 minB = 0xff, maxB = 0;
+    sf::Vector2u imgSize = image.getSize();
+    int num_of_rows = imgSize.y / THREAD_NUM;
+    pthread_t threads[THREAD_NUM];
+    struct min_max_args min_max_args[THREAD_NUM];
+
+    for (int i = 0; i < THREAD_NUM; i++) {
+        min_max_args[i].thread_id = i;
+        min_max_args[i].image = &image;
+        min_max_args[i].num_of_rows = num_of_rows;
+        min_max_args[i].minR = minR;
+        min_max_args[i].minG = minG;
+        min_max_args[i].minB = minB;
+        min_max_args[i].maxR = maxR;
+        min_max_args[i].maxG = maxG;
+        min_max_args[i].maxB = maxB;
+        if (pthread_create(&threads[i], NULL, thread_min_max, (void *) &min_max_args[i]) != 0) {
+            printf("Thread creation failed\n");
+            exit(-1);
+        }
+    }
+
+    for (int i = 0; i <  THREAD_NUM; i++) {
+        if (pthread_join(threads[i], NULL) != 0) {
+            printf("Thread join failed\n");
+            exit(-1);
+        }
+    }
+
+    // 統整各個 thread 的 min, max
+    for (int i = 0; i < THREAD_NUM; i++) {
+        minR = std::min(minR, min_max_args[i].minR);
+        minG = std::min(minG, min_max_args[i].minG);
+        minB = std::min(minB, min_max_args[i].minB);
+        maxR = std::max(maxR, min_max_args[i].maxR);
+        maxG = std::max(maxG, min_max_args[i].maxG);
+        maxB = std::max(maxB, min_max_args[i].maxB);
+    }
+
+    for (int i = 0; i < THREAD_NUM; i++) {
+        min_max_args[i].minR = minR;
+        min_max_args[i].minG = minG;
+        min_max_args[i].minB = minB;
+        min_max_args[i].maxR = maxR;
+        min_max_args[i].maxG = maxG;
+        min_max_args[i].maxB = maxB;
+        if (pthread_create(&threads[i], NULL, thread_normalize, (void *) &min_max_args[i]) != 0) {
+            printf("Thread creation failed\n");
+            exit(-1);
+        }
+    }
+
+    for (int i = 0; i < THREAD_NUM; i++) {
+        if (pthread_join(threads[i], NULL) != 0) {
+            printf("Thread join failed\n");
+            exit(-1);
+        }
+    }
+#else
     sf::Vector2u imgSize = image.getSize();
     sf::Uint8 minR = 0xff, maxR = 0;
     sf::Uint8 minG = 0xff, maxG = 0;
@@ -137,9 +206,12 @@ void normalize(sf::Image& image){
             maxB = std::max(maxB, pixel_color.b);
         }
     }
+
+    // 算出 difference
     int dr = maxR - minR;
     int dg = maxG - minG;
     int db = maxB - minB;
+    // 把它們用 (x - min) / diff 來 normalize
     for(int r = 0; r < imgSize.y; r++){
         for(int c = 0; c < imgSize.x; c++){
             sf::Color pixel_color = image.getPixel(c, r);
@@ -149,6 +221,16 @@ void normalize(sf::Image& image){
             image.setPixel(c, r, pixel_color);
         }
     }
+#endif
+
+    // 設置結束時間點
+    auto end_time = std::chrono::high_resolution_clock::now();
+    // 計算執行時間，以微秒（microseconds）為單位
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    // 將執行時間轉換為 double 類型
+    double microseconds = duration.count();
+    // 輸出執行時間
+    std::cout << "程式執行時間: " << microseconds << " 微秒" << std::endl;
 }
 
 void palette_to_file(const Palette& palette, const std::string& path, int rows=1){
@@ -509,26 +591,18 @@ int main(int argc, char** argv){
             normalize(out);
         }
         // Quantization and dithering
+        // 下面這三個都要做 thread 的平行化
         float threshold = config["dithering"]["threshold"].get<float>() * 255 / 100000;
         if(config["dithering"]["method"] == "floydsteinberg"){
-
             ditherFloydSteinberg(out, quantizer, threshold);
-
         }else if(config["dithering"]["method"] == "ordered"){
-
             ditherOrdered(out, quantizer, matrix_it->second, sparsity, threshold);
-            
         }else if(config["dithering"]["method"] == "none"){
-
             directQuantize(out, quantizer);
-        
         }else{
-        
             log(ERROR, "Bad dithering method option: " + config["dithering"]["method"].dump());
             return -1;
-        
         }
-
         
         // SAVE IT
         log(INFO, "Saving...", "");
