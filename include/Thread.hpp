@@ -2,7 +2,10 @@
 #define __THREAD_HPP__
 
 #include <pthread.h>
-#include <SFML/Graphics.hpp>
+#include "Palette.hpp"
+#include <string>
+
+using namespace mipa;
 
 struct min_max_args {
     int thread_id;
@@ -16,10 +19,22 @@ struct min_max_args {
     sf::Uint8 maxB;
 };
 
+struct pixel_args {
+    int thread_id;
+    int num_of_rows;
+    uint height;
+    uint width;
+    uint blockheight;
+    uint blockwidth;
+    const sf::Image *image;
+    sf::Image *newImage;
+    std::string selector;
+};
+
 
 void *thread_min_max(void *arg);
 void *thread_normalize(void *args);
-// void *thread_min_max();
+void *thread_pixel(void *args);
 
 
 

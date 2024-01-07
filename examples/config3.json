@@ -1,8 +1,8 @@
 {
     "normalize": "post",
     "select_pixel": "med",
-    "height": 640,
-    "width": 640,
+    "height": 64,
+    "width": 64,
     "quantization": "closest_rgb",
     "dithering": {
         "method": "ordered",

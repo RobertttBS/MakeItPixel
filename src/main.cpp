@@ -27,7 +27,7 @@ const std::string sep("/");
 using namespace mipa;
 using json = nlohmann::json;
 
-#define THREAD_NUM 4
+#define THREAD_NUM 2
 #define THREAD_ENABLED
 
 
@@ -63,7 +63,11 @@ void log(LogType level, std::string msg_pre, std::string end="\n"){
 
 sf::Image pixelize(const sf::Image& image, uint max_width, uint max_height, const std::string& selector="avg"){
     log(INFO, "Pixelizing...", "");
+    auto start_time = std::chrono::high_resolution_clock::now();
+
     sf::Vector2u origImgSize = image.getSize();
+    // std::cout << origImgSize.x << " " << origImgSize.y << std::endl; // check img size
+    // 設置成 config 裡面的 height 跟 width
     float ratio = (float)origImgSize.y/origImgSize.x;
     uint width, height;
     if(origImgSize.x > origImgSize.y){
@@ -73,7 +77,48 @@ sf::Image pixelize(const sf::Image& image, uint max_width, uint max_height, cons
         height = max_height;
         width = height / ratio;
     }
-    
+
+    // 產生一個 newimg，把舊的照片切成一堆 block，每個 block 最後會變成一個 pixel 加在新照片後面
+    sf::Image newimg;
+    float blockwidth = (float)origImgSize.x / width;
+    float blockheight = (float)origImgSize.y / height;
+    newimg.create(width, height);
+
+#ifdef THREAD_ENABLED
+    pthread_t threads[THREAD_NUM];
+    struct pixel_args pixel_args[THREAD_NUM];
+
+    // 這裡把 newImage 切成幾塊
+    for (int i = 0; i < THREAD_NUM; i++) {
+        // sf::Image tmpimg;
+        // float blockwidth = (float)origImgSize.x / width;
+        // float blockheight = (float)origImgSize.y / height;
+        // tmpimg.create(width, height);
+
+        pixel_args[i].thread_id = i;
+        pixel_args[i].selector = selector;
+        pixel_args[i].width = width;
+        pixel_args[i].height = height;
+        pixel_args[i].blockheight = blockheight;
+        pixel_args[i].blockwidth = blockwidth;
+        pixel_args[i].num_of_rows = height / THREAD_NUM;
+        pixel_args[i].image = &image;
+        pixel_args[i].newImage = &newimg;
+        if (pthread_create(&threads[i], NULL, thread_pixel, (void *) &pixel_args[i]) != 0) {
+            printf("Thread creation failed\n");
+            exit(-1);
+        }
+    }
+
+    for (int i = 0; i <  THREAD_NUM; i++) {
+        if (pthread_join(threads[i], NULL) != 0) {
+            printf("Thread join failed\n");
+            exit(-1);
+        }
+    }
+
+#else
+    // 弄一個function pointer： `selectorfun()`，有好幾種 selector，會從拿到的 Palette 算出一個 RGB 然後回傳
     RGB (*selectorfun)(const Palette&);        
     if(selector == "avg"){
         selectorfun = [](const Palette& p)->RGB{
@@ -102,18 +147,16 @@ sf::Image pixelize(const sf::Image& image, uint max_width, uint max_height, cons
     }else{
         throw std::runtime_error("Unkown pixel selector: "+selector);
     }
-    sf::Image newimg;
-    float blockwidth = (float)origImgSize.x / width;
-    float blockheight = (float)origImgSize.y / height;
-    newimg.create(width, height);
+
+    // 這裡的 i, j 已經是像素化圖片的 i, j 了，不是原本圖片的 i, j
     for(uint j = 0; j <= height; j++){
         for(uint i = 0; i <= width; i++){
             std::vector<RGB> block;
             for(uint bj = 0; bj < blockheight; bj++){
-                uint y = j * blockheight + bj;
+                uint y = j * blockheight + bj; // 算出 block 的 y 座標
                 if(y >= origImgSize.y) break;
                 for(uint bi = 0; bi < blockwidth; bi++){
-                    uint x = i * blockwidth + bi;
+                    uint x = i * blockwidth + bi; // 算出 block 的 x 座標
                     if(x >= origImgSize.x) break;
                     block.push_back(image.getPixel(x,y));
                 }
@@ -123,12 +166,25 @@ sf::Image pixelize(const sf::Image& image, uint max_width, uint max_height, cons
             }
         }
     }
+#endif
+
+    // 設置結束時間點
+    auto end_time = std::chrono::high_resolution_clock::now();
+    // 計算執行時間，以微秒（microseconds）為單位
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    // 將執行時間轉換為 double 類型
+    double milliseconds = duration.count();
+    // 輸出執行時間
+    std::cout << "pixelize() 程式執行時間: " << milliseconds << " 豪秒" << std::endl;
     return newimg;
 }
 
 void normalize(sf::Image& image){
     log(INFO, "Normalizing...", "");
     auto start_time = std::chrono::high_resolution_clock::now();
+
+    // image.saveToFile("beforeNormalize.jpeg");
+
 #ifdef THREAD_ENABLED
     sf::Uint8 minR = 0xff, maxR = 0;
     sf::Uint8 minG = 0xff, maxG = 0;
@@ -230,7 +286,8 @@ void normalize(sf::Image& image){
     // 將執行時間轉換為 double 類型
     double microseconds = duration.count();
     // 輸出執行時間
-    std::cout << "程式執行時間: " << microseconds << " 微秒" << std::endl;
+    std::cout << "normalize() 程式執行時間: " << microseconds << " 微秒" << std::endl;
+    // image.saveToFile("aftereNormalize.jpeg");
 }
 
 void palette_to_file(const Palette& palette, const std::string& path, int rows=1){
@@ -590,8 +647,9 @@ int main(int argc, char** argv){
         if(config["normalize"] == "post"){
             normalize(out);
         }
+
+        auto start_time = std::chrono::high_resolution_clock::now();
         // Quantization and dithering
-        // 下面這三個都要做 thread 的平行化
         float threshold = config["dithering"]["threshold"].get<float>() * 255 / 100000;
         if(config["dithering"]["method"] == "floydsteinberg"){
             ditherFloydSteinberg(out, quantizer, threshold);
@@ -603,6 +661,15 @@ int main(int argc, char** argv){
             log(ERROR, "Bad dithering method option: " + config["dithering"]["method"].dump());
             return -1;
         }
+
+        // 設置結束時間點
+        auto end_time = std::chrono::high_resolution_clock::now();
+        // 計算執行時間，以微秒（microseconds）為單位
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        // 將執行時間轉換為 double 類型
+        double milliseconds = duration.count();
+        // 輸出執行時間
+        std::cout << "dither() 程式執行時間: " << milliseconds << " 豪秒" << std::endl;
         
         // SAVE IT
         log(INFO, "Saving...", "");
