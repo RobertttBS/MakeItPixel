@@ -9,7 +9,7 @@
 
 namespace mipa{
     template <typename F>
-    void directQuantize(sf::Image& image, const F& quant){
+    void directQuantize(sf::Image& image, const F& quant) {
         sf::Vector2u imgSize = image.getSize();
         // 要在這邊把圖片切一切，然後丟到 thread    
         for(uint y = 0; y < imgSize.y; y++){
@@ -32,7 +32,8 @@ namespace mipa{
                     float gErr = (float)oldColor.g - newColor.g;
                     float bErr = (float)oldColor.b - newColor.b;
                     auto updatePixel = [&](uint xi, uint yi, float t){
-                        if(xi >= imgSize.x || yi >= imgSize.y) return; // unsigned so negative overflow
+                        if (xi >= imgSize.x || yi >= imgSize.y)
+                            return; // unsigned so negative overflow
                         RGB p = image.getPixel(xi, yi);
                         p.r = std::max(0.f, std::min(255.f, (float)p.r + (rErr * t)));
                         p.g = std::max(0.f, std::min(255.f, (float)p.g + (gErr * t)));
@@ -59,7 +60,7 @@ namespace mipa{
     extern const std::map<std::string, Matrix> matrices;
 
     template <typename F>
-    void ditherOrdered(sf::Image& image, const F& quant, const Matrix& m, double sparsity, float threshold = 0){
+    void ditherOrdered(sf::Image& image, const F& quant, const Matrix& m, double sparsity, float threshold = 0) {
         double N = m.getHeight() * m.getWidth();
         sf::Vector2u imgSize = image.getSize();
         for(uint y = 0; y < imgSize.y; y++){

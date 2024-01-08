@@ -27,10 +27,6 @@ const std::string sep("/");
 using namespace mipa;
 using json = nlohmann::json;
 
-#define THREAD_NUM 2
-#define THREAD_ENABLED
-
-
 /*
  * LOG FUNCTIONS
  */
@@ -87,21 +83,17 @@ sf::Image pixelize(const sf::Image& image, uint max_width, uint max_height, cons
 #ifdef THREAD_ENABLED
     pthread_t threads[THREAD_NUM];
     struct pixel_args pixel_args[THREAD_NUM];
+    int num_of_rows = (height + THREAD_NUM - 1) / THREAD_NUM;
 
     // 這裡把 newImage 切成幾塊
     for (int i = 0; i < THREAD_NUM; i++) {
-        // sf::Image tmpimg;
-        // float blockwidth = (float)origImgSize.x / width;
-        // float blockheight = (float)origImgSize.y / height;
-        // tmpimg.create(width, height);
-
         pixel_args[i].thread_id = i;
         pixel_args[i].selector = selector;
         pixel_args[i].width = width;
         pixel_args[i].height = height;
         pixel_args[i].blockheight = blockheight;
         pixel_args[i].blockwidth = blockwidth;
-        pixel_args[i].num_of_rows = height / THREAD_NUM;
+        pixel_args[i].num_of_rows = num_of_rows;
         pixel_args[i].image = &image;
         pixel_args[i].newImage = &newimg;
         if (pthread_create(&threads[i], NULL, thread_pixel, (void *) &pixel_args[i]) != 0) {
@@ -190,7 +182,7 @@ void normalize(sf::Image& image){
     sf::Uint8 minG = 0xff, maxG = 0;
     sf::Uint8 minB = 0xff, maxB = 0;
     sf::Vector2u imgSize = image.getSize();
-    int num_of_rows = imgSize.y / THREAD_NUM;
+    int num_of_rows = (imgSize.y + THREAD_NUM - 1) / THREAD_NUM;
     pthread_t threads[THREAD_NUM];
     struct min_max_args min_max_args[THREAD_NUM];
 
@@ -559,7 +551,7 @@ int main(int argc, char** argv){
     // BUILD COLOR SELECTION STRATEGY
     double sparsity = 0;
     std::function<RGB(const RGB&)> quantizer = [&](const RGB& rgb) -> RGB { return rgb; };
-    if(config["quantization"].is_string() && config["quantization"].get<std::string>().substr(0, 3) == "bit"){
+    if(config["quantization"].is_string() && config["quantization"].get<std::string>().substr(0, 3) == "bit") {
         int bit_num = std::stoi(config["quantization"].get<std::string>().substr(3));
         int values_per_channel = std::pow(2, bit_num);
         double factor = 255.0 / (values_per_channel-1);
@@ -576,7 +568,7 @@ int main(int argc, char** argv){
             );
         };
         sparsity = factor;
-    }else if(config["quantization"] == "closest_rgb"){
+    }else if (config["quantization"] == "closest_rgb") {
         quantizer = [palette](const RGB &rgb) -> RGB {
             return closestByColor(palette, rgb)[0];
         };
@@ -590,6 +582,7 @@ int main(int argc, char** argv){
         log(ERROR, "Bad quantization option: " + config["quantization"].dump());
         return -1;
     }
+
     //// Parameters for ordered dithering
     auto matrix_it = matrices.find(config["dithering"]["matrix"]);
        
@@ -651,6 +644,18 @@ int main(int argc, char** argv){
         auto start_time = std::chrono::high_resolution_clock::now();
         // Quantization and dithering
         float threshold = config["dithering"]["threshold"].get<float>() * 255 / 100000;
+#ifdef THREAD_ENABLED
+        if(config["dithering"]["method"] == "floydsteinberg"){
+            threadDitherFloydSteinberg(out, quantizer, threshold);
+        }else if(config["dithering"]["method"] == "ordered"){
+            threadDitherOrdered(out, quantizer, matrix_it->second, sparsity, threshold);
+        }else if(config["dithering"]["method"] == "none"){
+            threadDirectQuantize(out, quantizer);
+        }else{
+            log(ERROR, "Bad dithering method option: " + config["dithering"]["method"].dump());
+            return -1;
+        }
+#else
         if(config["dithering"]["method"] == "floydsteinberg"){
             ditherFloydSteinberg(out, quantizer, threshold);
         }else if(config["dithering"]["method"] == "ordered"){
@@ -661,6 +666,7 @@ int main(int argc, char** argv){
             log(ERROR, "Bad dithering method option: " + config["dithering"]["method"].dump());
             return -1;
         }
+#endif
 
         // 設置結束時間點
         auto end_time = std::chrono::high_resolution_clock::now();
