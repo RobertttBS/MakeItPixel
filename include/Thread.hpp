@@ -8,8 +8,7 @@
 #include "Palette.hpp"
 #include "Quantization.hpp"
 
-
-#define THREAD_NUM 2
+#define THREAD_NUM 4
 #define THREAD_ENABLED
 
 using namespace mipa;
@@ -38,7 +37,6 @@ struct pixel_args {
     std::string selector;
 };
 
-
 struct dither_args {
     int thread_id;
     int num_of_rows;
@@ -55,7 +53,6 @@ void *thread_pixel(void *args);
 void *thread_direct_quantize(void *args);
 void *thread_dither_ordered(void *args);
 void *thread_dither_floydsteinberg(void *args);
-
 
 void threadDirectQuantize(sf::Image& image, std::function<RGB(const RGB&)> &quant);
 void threadDitherOrdered(sf::Image& out, std::function<RGB(const RGB&)> &quantizer, const Matrix& m, double sparsity, float threshold = 0);

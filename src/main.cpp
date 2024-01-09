@@ -76,9 +76,10 @@ sf::Image pixelize(const sf::Image& image, uint max_width, uint max_height, cons
 
     // 產生一個 newimg，把舊的照片切成一堆 block，每個 block 最後會變成一個 pixel 加在新照片後面
     sf::Image newimg;
-    float blockwidth = (float)origImgSize.x / width;
-    float blockheight = (float)origImgSize.y / height;
+    float blockwidth = (float) (origImgSize.x + width - 1) / width;
+    float blockheight = (float) (origImgSize.y + height - 1) / height;
     newimg.create(width, height);
+
 
 #ifdef THREAD_ENABLED
     pthread_t threads[THREAD_NUM];
@@ -167,7 +168,7 @@ sf::Image pixelize(const sf::Image& image, uint max_width, uint max_height, cons
     // 將執行時間轉換為 double 類型
     double milliseconds = duration.count();
     // 輸出執行時間
-    std::cout << "pixelize() 程式執行時間: " << milliseconds << " 豪秒" << std::endl;
+    std::cout << "\npixelize() 程式執行時間: " << milliseconds << " 豪秒" << std::endl;
     return newimg;
 }
 
@@ -667,15 +668,14 @@ int main(int argc, char** argv){
             return -1;
         }
 #endif
-
         // 設置結束時間點
         auto end_time = std::chrono::high_resolution_clock::now();
         // 計算執行時間，以微秒（microseconds）為單位
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
         // 將執行時間轉換為 double 類型
-        double milliseconds = duration.count();
+        double microseconds = duration.count();
         // 輸出執行時間
-        std::cout << "dither() 程式執行時間: " << milliseconds << " 豪秒" << std::endl;
+        std::cout << "dither() 程式執行時間: " << microseconds << " 微秒" << std::endl;
         
         // SAVE IT
         log(INFO, "Saving...", "");
